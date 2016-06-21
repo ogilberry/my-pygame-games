@@ -342,7 +342,7 @@ class MyGame:
 		pygame.display.set_caption("Pyng Pong")
 		self.clock = pygame.time.Clock()
 		self.objects = [GameController(self.game_window)]
-		self.back_colour = (200,0,110) #RGB colour tuple for black
+		self.back_colour = (255,20,147) #RGB colour tuple for some shade of pink, arguably purple
 		self.game_speed = 60	#frames per second
 		#start the game loop
 		self.game_loop()
