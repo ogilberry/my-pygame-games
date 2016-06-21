@@ -339,7 +339,7 @@ class MyGame:
 		self.window_height = 480
 		# start in windowed mode, not fullscreen
 		self.game_window = pygame.display.set_mode((self.window_width, self.window_height),  pygame.HWSURFACE | pygame.DOUBLEBUF)
-		pygame.display.set_caption("Pyng Pong")
+		pygame.display.set_caption("Pink Pong")
 		self.clock = pygame.time.Clock()
 		self.objects = [GameController(self.game_window)]
 		self.back_colour = (255,20,147) #RGB colour tuple for some shade of pink, arguably purple
