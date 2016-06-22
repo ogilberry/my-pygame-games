@@ -86,21 +86,77 @@ class Opponent(Paddle):
 		self.__display = display
 		self.__brain = MyQueue()	# a list that tracks the balls position on different frames. Used for simulating delayed reaction time
 		self.__reaction_time = 5	# reaction time of AI in frames
+		self.__difficulties = (self.__ai_easy, self.__ai_normal, self.__ai_hard)
+		self.__current_difficulty = 0		#0 for easy, 1 for normal, 2 for hard
+		self.__winfo = pygame.display.Info()
 		self.set_position(15, 200)	#move the ai paddle to the left side of the screen
+
+	def set_difficulty(self, new_difficulty):
+		# new_difficulty must be an int between 0-2. 0 for easy, 1 for normal, 2 for hard
+		self.__current_difficulty = new_difficulty
+		
+	# the ai methods of the opponent. different thinking process for each difficulty	
+	def __ai_base(self, ball, reaction_time):
+		self.__reaction_time = reaction_time
+		while(self.__brain.size()>self.__reaction_time):
+			self.__brain.dequeue()
+	
+		self.__brain.enqueue(ball.get_position())	#add the position of the ball to the brain delay queue
+		# only check the ball position and move to it if the ball is on screen
+		if ball.is_in_play():
+			if self.__brain.size()>self.__reaction_time:
+				ball_position = self.__brain.dequeue()	#get the position of the ball from reaction_time frames ago, in a (x, y) tuple
+				paddle_rect = self.get_rect()
+				paddle_speed = self.get_speed()
+				# move the ai paddle towards the balls y position, making sure they dont move off the screen
+				if paddle_rect[1]+paddle_rect[3]//2 < ball_position[1] - paddle_speed and \
+				paddle_rect[1]+paddle_rect[3]<self.__winfo.current_h:
+					self.move_down()
+				elif paddle_rect[1]+paddle_rect[3]//2 > ball_position[1] + paddle_speed and \
+				paddle_rect[1]>0:
+					self.move_up()
+	
+	def __ai_easy(self, ball):
+		#same as ai_normal but with a slower reaction time
+		self.__ai_base(ball, 14)
+		
+	def __ai_normal(self, ball):
+		self.__ai_base(ball, 8)
+	
+	def __ai_hard(self, ball):
+		#same as ai_normal but with a faster reaction time, and moves to the middle after returning a shot.
+		self.__reaction_time = 3
+		while(self.__brain.size()>self.__reaction_time):
+			self.__brain.dequeue()
+	
+		self.__brain.enqueue(ball.get_position())
+		if ball.is_in_play():
+			if self.__brain.size()>self.__reaction_time:
+				paddle_rect = self.get_rect()
+				paddle_speed = self.get_speed()
+				ball_position = self.__brain.dequeue()	#get the position of the ball from reaction_time frames ago, in a (x, y) tuple
+				ball_direction = ball.get_direction()
+				# if the ball is moving away from the ai, move towards the middle of the screen
+				if math.cos(ball_direction)>0:		#assumes ai is on the left
+					if paddle_rect[1]+paddle_rect[3]//2<self.__winfo.current_h//2-paddle_speed:
+						self.move_down()
+					elif paddle_rect[1]+paddle_rect[3]//2>self.__winfo.current_h//2+paddle_speed:
+						self.move_up()
+				# otherwise move the ai paddle towards the balls y position, making sure they dont move off the screen
+				else:
+					if paddle_rect[1]+paddle_rect[3]//2 < ball_position[1] - paddle_speed and \
+					paddle_rect[1]+paddle_rect[3]<self.__winfo.current_h:
+						self.move_down()
+					elif paddle_rect[1]+paddle_rect[3]//2 > ball_position[1] + paddle_speed and \
+					paddle_rect[1]>0:
+						self.move_up()
+			
 		
 	def update(self, events, objects):	
 		for object in objects:
 			if isinstance(object, Ball):
-				self.__brain.enqueue(object.get_position())	#add the position of the ball to the brain delay queue
-				# only check the ball position and move to it if the ball is on screen
-				if object.is_in_play():
-					if self.__brain.size()>self.__reaction_time:
-						ball_position = self.__brain.dequeue()	#get the position of the ball from reaction_time frames ago, in a (x, y) tuple
-						# move the ai paddle towards the balls y position
-						if self.get_rect()[1]+self.get_rect()[3]//2 < ball_position[1] - self.get_speed():
-							self.move_down()
-						elif self.get_rect()[1]+self.get_rect()[3]//2 > ball_position[1] + self.get_speed():
-							self.move_up()
+				#call the ai method for the opponent. Moves the paddle based on the ball and its own positions'
+				self.__difficulties[self.__current_difficulty](object)	
 		
 		#update the paddle
 		super(Opponent, self).update()		
@@ -118,7 +174,7 @@ class Ball:
 		self.__x = 0
 		self.__y = 0	#coords of the top left corner of the ball
 		#between 0 and pi/2, the  max angle from the horizontal in either direction the ball bounces from a paddle
-		self.__max_bounce_angle = math.pi/4		
+		self.__max_bounce_angle = math.pi/5
 		self.__next_x = self.__x + self.__hspeed
 		self.__next_y = self.__y + self.__vspeed
 		
@@ -127,6 +183,9 @@ class Ball:
 		
 	def get_position(self):
 		return (self.__x, self.__y)
+		
+	def get_direction(self):
+		return self.__direction
 	
 	def set_position(self, newx, newy):
 		self.__x = newx
@@ -146,9 +205,8 @@ class Ball:
 		
 	def set_direction_random(self, base_direction, error):
 		# set direction to a random direction plus or minus a random value within the range of the specified error. All in radians
-		offset = random.uniform(0, error)
-		self.__direction = base_direction + error
-		self.__direction -= offset
+		offset = random.uniform(0, error*2)
+		self.__direction = base_direction + error - offset
 		self.__calculate_speed_components()
 		
 	def is_in_play(self):
@@ -181,6 +239,9 @@ class Ball:
 						new_base_direction = math.pi
 					#set the new direction
 					self.set_direction_random(new_base_direction, self.__max_bounce_angle)
+					# post an event so the main game loop will see it and change the background colour
+					hit_event = pygame.event.Event(pygame.USEREVENT+4)
+					pygame.event.post(hit_event)
 		
 	def update(self, events, objects):			
 		#calculate the would-be position of the ball in the next frame, based on the current direction and velocity.
@@ -217,6 +278,12 @@ class MatchController:
 		self.__score_font = pygame.font.SysFont("Arial", 48)
 		self.__score_limit = 7
 		self.__max_serve_angle = math.pi/8		# max angle from horizontal in radians the ball can move on a serve
+		
+	def set_ball_speed(self, new_speed):
+		self.__ball_speed = new_speed
+		
+	def set_max_serve_angle(self, new_angle):
+		self.__max_serve_angle = new_angle		#remember, its all in radians
 		
 	def __centre_ball(self, ball):
 		# called when somebody wins a point. Increments the scores, sets a timer, and moves the ball to the centre.
@@ -283,17 +350,48 @@ class GameController:
 		self.__font_name = "Arial"
 		self.__big_font = pygame.font.SysFont(self.__font_name, 48)
 		self.__small_font = pygame.font.SysFont(self.__font_name, 18)
-		self.__state = "start"		# "start", "game", or "endgame".
+		self.__state = "start"		# "start", "difficulty", "game", or "endgame".
 		self.__draw_colour = (255, 255, 255)	#RGB colour tuple
 		self.__result_string = None	#placeholder for "You won!" or "You lost!"
 		self.__play_label = self.__big_font.render("Press 'P' To Play Again", 1, self.__draw_colour)
 		self.__quit_label = self.__small_font.render("Or press 'Q' to quit", 1, self.__draw_colour)
+		self.__difficulties = (self.start_easy_game, self.start_normal_game, self.start_hard_game)
+		self.__current_difficulty = 1
 		
 	def set_result_string(self, newstring):
 		self.__result_string = newstring
+
+	def start_easy_game(self, objects):
+		self.__current_difficulty = 0
+		o = Opponent(self.__display)
+		m = MatchController(self.__display)
+		o.set_difficulty(self.__current_difficulty)
+		m.set_ball_speed(10)
+		m.set_max_serve_angle(math.pi/36)
+		objects+=[o, m, Player(self.__display), Ball(self.__display)]
+		self.__state = "game"
 		
-	def update(self, events, objects):
+	def start_normal_game(self, objects):
+		self.__current_difficulty = 1
+		o = Opponent(self.__display)
+		m = MatchController(self.__display)
+		o.set_difficulty(self.__current_difficulty)
+		m.set_ball_speed(12)
+		m.set_max_serve_angle(math.pi/18)
+		objects+=[o, m, Player(self.__display), Ball(self.__display)]
+		self.__state = "game"
 		
+	def start_hard_game(self, objects):
+		self.__current_difficulty = 2
+		o = Opponent(self.__display)
+		m = MatchController(self.__display)
+		o.set_difficulty(self.__current_difficulty)
+		m.set_ball_speed(14)
+		m.set_max_serve_angle(math.pi/12)
+		objects+=[o, m, Player(self.__display), Ball(self.__display)]
+		self.__state = "game"
+		
+	def update(self, events, objects):		
 		for event in events:
 			# if the match is over (player or opponent wins)
 			if event.type == pygame.USEREVENT+2:
@@ -311,11 +409,23 @@ class GameController:
 						
 				elif event.key == pygame.K_p:
 					#if the player wants to start a game
-					if self.__state=="start" or self.__state=="endgame":
-						#create the game objects, and move the ball to the middle.
-						objects += [Player(self.__display), Opponent(self.__display), Ball(self.__display), MatchController(self.__display)]
-						self.__state = "game"
-			
+					if self.__state=="start":
+						# go to the difficulty selection screen
+						self.__state = "difficulty"
+					#if the player wants a rematch, start with the currently selected difficulty
+					elif self.__state=="endgame":
+						self.__difficulties[self.__current_difficulty](objects)
+						
+				elif event.key == pygame.K_e and self.__state == "difficulty":
+					self.start_easy_game(objects)
+				elif event.key == pygame.K_n and self.__state == "difficulty":
+					self.start_normal_game(objects)
+				elif event.key == pygame.K_h and self.__state == "difficulty":
+					self.start_hard_game(objects)
+					
+				elif event.key == pygame.K_d and self.__state == "endgame":
+					self.__state = "difficulty"
+				
 		# alter the text the gamecontroller displays based on the current game state
 		winfo = pygame.display.Info()
 		w = winfo.current_w
@@ -329,9 +439,23 @@ class GameController:
 		elif self.__state == "endgame":
 			self.__play_label = self.__big_font.render("Press 'P' To Play Again", 1, self.__draw_colour)
 			result_label = self.__big_font.render(self.__result_string, 1, self.__draw_colour)
+			difficulty_label = self.__small_font.render("Press 'D' To Change Difficulty", 1, self.__draw_colour)
 			self.__display.blit(result_label, (w//2-result_label.get_width()//2, 100))
 			self.__display.blit(self.__play_label, (w//2-self.__play_label.get_width()//2, h//2-self.__play_label.get_height()))
-			self.__display.blit(self.__quit_label, (w//2-self.__quit_label.get_width()//2, h//2+self.__quit_label.get_height()))
+			self.__display.blit(difficulty_label, (w//2-difficulty_label.get_width()//2, h//2+difficulty_label.get_height()))
+			self.__display.blit(self.__quit_label, (w//2-self.__quit_label.get_width()//2, h//2+self.__quit_label.get_height()*2))
+			
+		elif self.__state == "difficulty":
+			difficulty_label = self.__big_font.render("Select a difficulty", 1, self.__draw_colour)
+			easy_label = self.__big_font.render("[E]asy", 1, self.__draw_colour)
+			normal_label = self.__big_font.render("[N]ormal", 1, self.__draw_colour)
+			hard_label = self.__big_font.render("[H]ard", 1, self.__draw_colour)
+			self.__display.blit(difficulty_label, (w//2-difficulty_label.get_width()//2, 80))
+			x = w//2 - max(easy_label.get_width(), normal_label.get_width(), hard_label.get_width())//2
+			self.__display.blit(easy_label, (x, 160))
+			self.__display.blit(normal_label, (x, 170+easy_label.get_height()))
+			self.__display.blit(hard_label, (x, 180+2*easy_label.get_height()))
+			
 		
 class MyGame:
 	def __init__(self):
@@ -342,7 +466,7 @@ class MyGame:
 		pygame.display.set_caption("Pink Pong")
 		self.clock = pygame.time.Clock()
 		self.objects = [GameController(self.game_window)]
-		self.back_colour = (255,20,147) #RGB colour tuple for some shade of pink, arguably purple
+		self.back_colourq = (255,20,147) #RGB colour tuple for some shade of pink, arguably purple
 		self.game_speed = 60	#frames per second
 		#start the game loop
 		self.game_loop()
@@ -355,6 +479,12 @@ class MyGame:
 			for event in events:
 				if event.type == pygame.QUIT:
 					return
+				#this event is posted on every collision between the ball and a paddle, or when a point is won. Change the background colour each time
+				#elif event.type == pygame.USEREVENT+4:
+					#r,g,b = random.randrange(256), random.randrange(256), random.randrange(256)
+					#while ((r>170 and g>170) or  (r>170 and b>170) or (b>170 and g>170)):	#make sure the new background colour isnt white/light grey
+						#r,g,b = random.randrange(256), random.randrange(256), random.randrange(256)
+					#self.back_colour = (r,g,b)
 					
 			# Clear the screen to black
 			self.game_window.fill(self.back_colour)
